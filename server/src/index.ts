@@ -15,8 +15,25 @@ import { timetableRouter } from "./routes/timetable.routes";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
+const localOrigin = /^http:\/\/localhost:\d+$/;
+const clientOrigins = new Set(
+  (process.env.CLIENT_URL ?? "")
+    .split(",")
+    .map((value) => value.trim().replace(/\/$/, ""))
+    .filter((value) => value.length > 0),
+);
 
-app.use(cors({ origin: /^http:\/\/localhost:\d+$/ }));
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || localOrigin.test(origin) || clientOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+  }),
+);
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => {

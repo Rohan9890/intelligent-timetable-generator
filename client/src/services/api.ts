@@ -22,10 +22,15 @@ export class ApiError extends Error {
   }
 }
 
+function apiUrl(path: string): string {
+  const base = import.meta.env.VITE_API_URL?.trim().replace(/\/$/, "");
+  return base ? `${base}${path}` : path;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(path, {
+    response = await fetch(apiUrl(path), {
       ...init,
       headers: {
         "Content-Type": "application/json",
