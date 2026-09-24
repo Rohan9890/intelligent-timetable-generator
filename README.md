@@ -8,7 +8,7 @@ A timetable coordinator selects a department, generates a weekly schedule, and e
 
 SmartSchedule plans one week of classes for divisions, subjects, faculty, and classrooms. It enforces hard conflicts and keeps the last successful timetable when a new attempt fails.
 
-The coordinator UI lists setup data and shows the timetable by division, faculty, or room. Faculty availability is stored and enforced by the scheduler. The screen for editing that grid was not built.
+The coordinator UI manages setup data, edits faculty availability, generates a timetable, and shows it by division, faculty, or room. A slot can be moved by hand when the same hard constraints still hold.
 
 ## 2. Problem Statement
 
@@ -39,14 +39,15 @@ The scheduler does not import Prisma and does not query the database. That keeps
 ## 4. Key Features
 
 - Department-scoped generation
-- Read-only faculty, subject, division, classroom, and assignment lists in the UI
-- Create endpoints for those records on the API
-- Faculty unavailable periods stored and enforced
+- Create, edit, and delete for faculty, subjects, divisions, classrooms, and assignments
+- Faculty availability grid: a marked cell is unavailable, and saving replaces that faculty member’s rows
+- Manual slot edits for day, period, and classroom, with the same hard checks as generation
 - Automatic generation on a Monday–Friday, six-period grid
 - Division, faculty, and room timetable views, filtered in the browser
 - Structured conflict explanation with suggested actions
 - Transactional save of a successful run
 - Failed runs do not deactivate the previous successful timetable
+- Generation history for the selected department, including conflicts from failed runs
 
 ## 5. Technology Stack
 
@@ -110,7 +111,7 @@ On failure the service writes a `FAILED` generation run and its conflict reports
 
 Department owns faculty, subjects, and divisions. Classrooms are shared by the college. An assignment links one subject, one division, and one faculty member, with a weekly period count. One subject-division pair has one faculty member. A course with both theory and lab is two subjects.
 
-`GenerationRun` is either `SUCCESS` or `FAILED`. Successful slots copy subject, division, faculty, and classroom so the three occupancy rules can be enforced in the database. `GenerationRun` has no `departmentId`. The active timetable for a department is the latest `SUCCESS` run with `isActive = true` whose slots belong to that department’s divisions.
+`GenerationRun` is either `SUCCESS` or `FAILED`. Successful slots copy subject, division, faculty, and classroom so the three occupancy rules can be enforced in the database. `GenerationRun` has no `departmentId`. The active timetable for a department is the latest `SUCCESS` run with `isActive = true` whose slots belong to that department’s divisions. A failed run is tied to the department through its conflict reports’ assignments. History lists both.
 
 ## 11. API Overview
 
@@ -121,13 +122,20 @@ The API listens on port `3001` unless `PORT` is set. The Vite dev server proxies
 | GET | `/api/health` | `{ "status": "ok" }` |
 | GET | `/api/departments` | Department id, name, and code |
 | GET, POST | `/api/faculty` | List or create faculty |
+| PUT, DELETE | `/api/faculty/:facultyId` | Update or delete one faculty member |
 | GET, PUT | `/api/faculty/:facultyId/availability` | Read or replace unavailable periods |
 | GET, POST | `/api/subjects` | List or create subjects |
+| PUT, DELETE | `/api/subjects/:subjectId` | Update or delete one subject |
 | GET, POST | `/api/divisions` | List or create divisions |
+| PUT, DELETE | `/api/divisions/:divisionId` | Update or delete one division |
 | GET, POST | `/api/classrooms` | List or create classrooms |
+| PUT, DELETE | `/api/classrooms/:classroomId` | Update or delete one classroom |
 | GET, POST | `/api/assignments` | List or create assignments |
+| PUT, DELETE | `/api/assignments/:assignmentId` | Update or delete one assignment |
 | POST | `/api/generate` | Body `{ "departmentId" }`. Required. |
 | GET | `/api/timetable?departmentId=` | Active successful timetable |
+| PATCH | `/api/timetable/slots/:slotId` | Move a slot’s day, period, or classroom |
+| GET | `/api/generations?departmentId=` | Generation history for that department |
 
 Invalid input returns 400. A missing department, faculty member, or timetable returns 404. A duplicate unique value returns 409. Unexpected failures return 500 with `{ "error": "..." }`. Prisma error details are not sent to the client.
 
@@ -136,10 +144,11 @@ A successful generate response is `{ success: true, generationRunId, slotCount, 
 ## 12. User Flow
 
 1. Open the app and select Computer Engineering or Information Technology.
-2. Review faculty, subjects, divisions, classrooms, and assignments for that department.
+2. Review or edit faculty, subjects, divisions, classrooms, and assignments for that department. Availability is edited on the Faculty page.
 3. Choose Generate Timetable.
-4. On success, open the timetable and switch among Division, Faculty, and Room.
+4. On success, open the timetable and switch among Division, Faculty, and Room. A slot’s day, period, or classroom can be changed from the edit form. Invalid moves are rejected.
 5. On failure, read the conflict card. The previous successful timetable, if any, stays available when that department is selected again.
+6. Open History to see successful and failed attempts for the selected department.
 
 There is no login. The prototype assumes one coordinator.
 
@@ -183,17 +192,17 @@ Both scenarios are seeded. Generate one department at a time. Rooms are shared, 
 - **Fixed Monday–Friday, six-period grid.** The assignment assumes one shared grid. A settings table would invalidate availability rows and saved slots whenever the grid changed.
 - **No authentication.** The task is timetable correctness, not identity. A login system would not show whether the scheduler is sound.
 - **No soft constraints.** Preferences such as fewer gaps are secondary to hard feasibility and clear failures.
-- **No drag-and-drop editing.** Manual repair needs the same constraint checks as generation. The prototype stops at generate, explain, and view.
+- **No drag-and-drop editing.** A coordinator can still move a slot with the edit form. The same hard checks reject an invalid move, and the slot is marked manual.
 - **No real-time collaboration.** One coordinator edits setup data. Concurrent editing is a different product.
 - **No multi-campus model.** Classrooms are one shared pool. Campus boundaries were not part of the brief.
 
 ## 17. Known Limitations
 
 - The search can miss a feasible timetable that a backtracking search or solver would find.
-- `GenerationRun` has no department column. Department is inferred from saved slots. A department with no assignments is rejected, because a successful run with zero slots could not be tied back to a department.
-- The UI lists setup data and does not provide create or edit forms. The POST routes exist.
-- There is no faculty-availability screen. Unavailable periods are seeded and can be replaced through the API.
-- There is no manual slot editing.
+- `GenerationRun` has no department column. A success is tied to a department through its slots. A failure is tied through conflict assignments. Deleting that assignment can drop an old failed run out of history. A department with no assignments is rejected, because a successful run with zero slots could not be tied back to a department.
+- Saving a slot back to its original day and period still leaves it marked manual.
+- Deleting a faculty member who has no assignments also removes their availability rows, because that relation cascades.
+- Editing a room or assignment that is already used does not rewrite or recheck existing timetable slots.
 - Lab sessions are single periods, not consecutive blocks.
 - Changing `PORT` away from 3001 also requires changing the Vite proxy.
 

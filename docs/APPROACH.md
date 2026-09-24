@@ -79,4 +79,4 @@ The browser pass opened Overview, Timetable, and each setup page, switched divis
 
 ## Future improvements
 
-Limited backtracking, an availability editor, setup forms, and manual edits that reuse the same hard checks. A `departmentId` on the generation run if active timetables must be addressed without looking at slots. Soft preferences only after the hard pass remains explainable.
+Limited backtracking, a `departmentId` on the generation run, and soft preferences only after the hard pass remains explainable. Availability editing, setup forms, manual slot checks, and generation history are already in the product.
