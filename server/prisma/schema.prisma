@@ -1,0 +1,183 @@
+// Phase 1 schema.
+// CHECK constraints (period range and positive counts) live in the initial migration.
+// Weekly period requirements live on Assignment, not Subject.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+}
+
+enum RoomType {
+  CLASSROOM
+  LAB
+}
+
+enum GenerationStatus {
+  SUCCESS
+  FAILED
+}
+
+enum ConflictReasonCode {
+  FACULTY_UNAVAILABLE
+  FACULTY_CONFLICT
+  DIVISION_CONFLICT
+  CLASSROOM_CONFLICT
+  ROOM_CAPACITY
+  LAB_ROOM_REQUIRED
+  INSUFFICIENT_CANDIDATE_SLOTS
+  PERIODS_EXCEED_GRID
+}
+
+model Department {
+  id        String     @id @default(cuid())
+  name      String
+  code      String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  faculty   Faculty[]
+  subjects  Subject[]
+  divisions Division[]
+}
+
+model Faculty {
+  id             String                @id @default(cuid())
+  departmentId   String
+  name           String
+  email          String                @unique
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  department     Department            @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  unavailable    FacultyAvailability[]
+  assignments    Assignment[]
+  timetableSlots TimetableSlot[]
+}
+
+/// A row means the faculty member is unavailable. No row means available.
+model FacultyAvailability {
+  id        String    @id @default(cuid())
+  facultyId String
+  dayOfWeek DayOfWeek
+  period    Int
+  faculty   Faculty   @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+
+  @@unique([facultyId, dayOfWeek, period])
+}
+
+model Subject {
+  id           String       @id @default(cuid())
+  departmentId String
+  name         String
+  code         String
+  isLab        Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assignments  Assignment[]
+
+  @@unique([departmentId, code])
+}
+
+model Division {
+  id           String          @id @default(cuid())
+  departmentId String
+  name         String
+  studentCount Int
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  department   Department      @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assignments  Assignment[]
+  slots        TimetableSlot[]
+
+  @@unique([departmentId, name])
+}
+
+model Classroom {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  capacity  Int
+  roomType  RoomType
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  slots     TimetableSlot[]
+}
+
+model Assignment {
+  id             String           @id @default(cuid())
+  subjectId      String
+  divisionId     String
+  facultyId      String
+  periodsPerWeek Int
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  subject        Subject          @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  division       Division         @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  faculty        Faculty          @relation(fields: [facultyId], references: [id], onDelete: Restrict)
+  slots          TimetableSlot[]
+  conflicts      ConflictReport[]
+
+  @@unique([subjectId, divisionId])
+}
+
+model GenerationRun {
+  id          String           @id @default(cuid())
+  status      GenerationStatus
+  isActive    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  completedAt DateTime?
+  summary     String
+  slots       TimetableSlot[]
+  conflicts   ConflictReport[]
+}
+
+model TimetableSlot {
+  id              String        @id @default(cuid())
+  generationRunId String
+  assignmentId    String
+  subjectId       String
+  divisionId      String
+  facultyId       String
+  classroomId     String
+  dayOfWeek       DayOfWeek
+  period          Int
+  isManual        Boolean       @default(false)
+  generationRun   GenerationRun @relation(fields: [generationRunId], references: [id], onDelete: Cascade)
+  assignment      Assignment    @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  division        Division      @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  faculty         Faculty       @relation(fields: [facultyId], references: [id], onDelete: Restrict)
+  classroom       Classroom     @relation(fields: [classroomId], references: [id], onDelete: Restrict)
+
+  @@unique([generationRunId, divisionId, dayOfWeek, period])
+  @@unique([generationRunId, facultyId, dayOfWeek, period])
+  @@unique([generationRunId, classroomId, dayOfWeek, period])
+  @@index([generationRunId, divisionId])
+  @@index([generationRunId, facultyId])
+  @@index([generationRunId, classroomId])
+}
+
+model ConflictReport {
+  id                String             @id @default(cuid())
+  generationRunId   String
+  assignmentId      String?
+  reasonCode        ConflictReasonCode
+  requiredPeriods   Int
+  compatiblePeriods Int
+  summary           String
+  possibleActions   String[]
+  evidence          Json
+  generationRun     GenerationRun      @relation(fields: [generationRunId], references: [id], onDelete: Cascade)
+  assignment        Assignment?        @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+
+  @@index([generationRunId])
+}
